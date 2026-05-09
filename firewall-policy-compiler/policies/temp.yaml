@@ -1,0 +1,54 @@
+metadata:
+  name: "Corporate Perimeter Policy"
+  version: "1.0"
+  description: "Standard firewall policy for corporate HQ"
+  
+zones:
+  INTERNAL: "10.0.0.0/16"
+  DMZ: "192.168.50.0/24"
+  VPN: "10.8.0.0/24"
+  EXTERNAL: "0.0.0.0/0"
+
+services:
+  CUSTOM_APP:
+    port: 8080
+    proto: tcp
+
+rules:
+  - name: "Allow HTTP/HTTPS from ANY to DMZ"
+    source: EXTERNAL
+    destination: DMZ
+    service: ["HTTP", "HTTPS"]
+    action: DENY
+
+  - name: "Allow Admins SSH to DMZ"
+    source: INTERNAL
+    destination: DMZ
+    service: ["SSH"]
+    action: ALLOW
+
+  - name: "VPN users reach internal subnet A"
+    source: VPN
+    destination: "10.0.1.0/24"
+    action: ALLOW
+    
+  - name: "Block specific malicious IP"
+    source: "203.0.113.50/32"
+    destination: ANY
+    action: DENY
+    log: true
+
+  - name: "Allow Internal outbound"
+    source: INTERNAL
+    destination: EXTERNAL
+    action: ALLOW
+
+nat:
+  - type: SNAT
+    source: INTERNAL
+    out_interface: "eth0"
+    
+  - type: DNAT
+    in_interface: "eth0"
+    port: 80
+    to_ip: "192.168.50.10"

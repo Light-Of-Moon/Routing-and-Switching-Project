@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firewall Policy Compiler</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <header class="glass-header">
+            <div class="logo">
+                <div class="shield-icon">🛡️</div>
+                <h1>Policy Engine</h1>
+                <a href="/device" style="color: var(--accent-primary); margin-left: 15px; font-size: 14px; text-decoration: none;">View Device Rules</a>
+            </div>
+            <div class="actions">
+                <button id="btn-snapshot" class="btn secondary">Take Snapshot</button>
+                <button id="btn-logs" class="btn secondary" style="background: rgba(255,165,0,0.1); color: var(--accent-warning); border-color: orange;">📜 System Logs</button>
+                <button id="btn-compile" class="btn primary">Compile Policy</button>
+                <button id="btn-apply" class="btn primary warning-btn" style="background-color: var(--accent-danger);">Apply to Device</button>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Left Column: Editor -->
+            <section class="panel editor-panel glass-panel">
+                <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 style="margin: 0;">Policy Definition (YAML)</h2>
+                        <div>
+                            <button id="btn-undo" class="btn secondary" style="padding: 4px 10px; font-size: 12px; margin-right: 5px;" title="Undo last YAML change">↺ Undo</button>
+                            <button id="btn-toggle-builder" class="btn secondary" style="padding: 4px 10px; font-size: 12px;">Toggle Visual Builder</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Visual Rule Builder (Hidden by default) -->
+                    <div id="visual-builder" class="builder-container" style="display: none; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; gap: 10px; flex-wrap: wrap;">
+                        <input type="text" id="b-name" placeholder="Rule Name" class="b-input" style="flex: 1 1 100%;">
+                        <select id="b-source" class="b-input"><option value="ANY">ANY (Source)</option><option value="EXTERNAL">EXTERNAL</option><option value="INTERNAL">INTERNAL</option><option value="VPN">VPN</option></select>
+                        <select id="b-dest" class="b-input"><option value="ANY">ANY (Dest)</option><option value="INTERNAL">INTERNAL</option><option value="DMZ">DMZ</option><option value="EXTERNAL">EXTERNAL</option></select>
+                        <select id="b-service" class="b-input" onchange="if(this.value=='CUSTOM') document.getElementById('b-custom-port').style.display='inline-block'; else document.getElementById('b-custom-port').style.display='none';">
+                            <option value="ANY">ANY (Service)</option>
+                            <option value="HTTP">HTTP (80)</option>
+                            <option value="HTTPS">HTTPS (443)</option>
+                            <option value="SSH">SSH (22)</option>
+                            <option value="RDP">RDP (3389)</option>
+                            <option value="MYSQL">MySQL (3306)</option>
+                            <option value="POSTGRES">PostgreSQL (5432)</option>
+                            <option value="ICMP">Ping (ICMP)</option>
+                            <option value="CUSTOM">Custom Port</option>
+                        </select>
+                        <input type="text" id="b-custom-port" placeholder="Port" class="b-input" style="display:none; width: 80px;">
+                        <select id="b-action" class="b-input"><option value="ALLOW">ALLOW</option><option value="DENY">DENY</option></select>
+                        <button id="btn-add-rule" class="btn secondary" style="flex: 1 1 100%;">Add Rule to Policy</button>
+                    </div>
+                </div>
+                <div class="editor-container">
+                    <textarea id="policy-editor" spellcheck="false">{{ default_yaml }}</textarea>
+                </div>
+            </section>
+
+            <!-- Right Column: Outputs -->
+            <section class="panel results-panel">
+                
+                <!-- Audit Report -->
+                <div class="glass-panel output-card" id="audit-card">
+                    <div class="panel-header">
+                        <h2>Audit Report</h2>
+                        <div class="score-badge" id="audit-score">100</div>
+                    </div>
+                    <div class="audit-content" id="audit-content">
+                        <p class="placeholder-text">Compile policy to view audit results.</p>
+                    </div>
+                </div>
+
+                <!-- Tabs for generated code -->
+                <div class="glass-panel code-card">
+                    <div class="tabs">
+                        <button class="tab active" data-target="iptables-out">iptables</button>
+                        <button class="tab" data-target="nftables-out">nftables</button>
+                        <button class="tab" data-target="nat-out">NAT/DMZ</button>
+                        <button class="tab" data-target="vpn-out">VPN</button>
+                    </div>
+                    <div class="tab-content">
+                        <pre id="iptables-out" class="code-block active"><code>// Waiting for compilation...</code></pre>
+                        <pre id="nftables-out" class="code-block"><code>// Waiting for compilation...</code></pre>
+                        <pre id="nat-out" class="code-block"><code>// Waiting for compilation...</code></pre>
+                        <pre id="vpn-out" class="code-block"><code>// Waiting for compilation...</code></pre>
+                    </div>
+                </div>
+
+                <!-- Rule Testing Tab / Panel -->
+                <div class="glass-panel" id="rule-testing-card" style="border: 2px solid var(--accent-primary); box-shadow: 0 4px 15px rgba(0,200,255,0.1);">
+                    <div class="panel-header" style="display:flex; justify-content: space-between; align-items:center;">
+                        <h2 style="display: flex; align-items: center; gap: 8px;">📡 Policy Tester (Live)</h2>
+                        <span class="status-badge" id="test-status-badge" style="background:var(--accent-secondary); padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">Ready</span>
+                    </div>
+                    <div class="test-content" style="padding: 16px;">
+                        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px;">Verify the actual effect of the firewall rule in real time by testing inter-container connectivity.</p>
+                        <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                            <div style="flex:1; min-width: 120px;">
+                                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px; font-weight:600;">Source Zone</label>
+                                <select id="rt-source" class="b-input" style="width: 100%; border: 1px solid var(--panel-border);">
+                                    <option value="EXTERNAL">EXTERNAL</option>
+                                    <option value="INTERNAL">INTERNAL</option>
+                                    <option value="VPN">VPN</option>
+                                    <option value="DMZ">DMZ</option>
+                                </select>
+                            </div>
+                            <div style="display:flex; align-items:flex-end; padding-bottom:8px; color: var(--text-muted);">
+                                ➔
+                            </div>
+                            <div style="flex:1; min-width: 120px;">
+                                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px; font-weight:600;">Destination Zone</label>
+                                <select id="rt-dest" class="b-input" style="width: 100%; border: 1px solid var(--panel-border);">
+                                    <option value="DMZ" selected>DMZ</option>
+                                    <option value="INTERNAL">INTERNAL</option>
+                                    <option value="EXTERNAL">EXTERNAL</option>
+                                    <option value="VPN">VPN</option>
+                                </select>
+                            </div>
+                            <div style="flex:0.5; min-width: 80px;">
+                                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px; font-weight:600;">Service/Port</label>
+                                <select id="rt-port-select" class="b-input" style="width: 100%; border: 1px solid var(--panel-border);" onchange="if(this.value=='CUSTOM') { document.getElementById('rt-port-custom').style.display='block'; document.getElementById('rt-port').value=''; } else { document.getElementById('rt-port-custom').style.display='none'; document.getElementById('rt-port').value=this.value; }">
+                                    <option value="80">HTTP (80)</option>
+                                    <option value="443">HTTPS (443)</option>
+                                    <option value="22">SSH (22)</option>
+                                    <option value="3389">RDP (3389)</option>
+                                    <option value="3306">MySQL (3306)</option>
+                                    <option value="5432">PostgreSQL (5432)</option>
+                                    <option value="CUSTOM">Custom Port</option>
+                                </select>
+                                <div id="rt-port-custom" style="display:none; margin-top:5px;">
+                                    <input type="number" id="rt-port" placeholder="Port Num" class="b-input" value="80" style="width: 100%; border: 1px solid var(--panel-border);">
+                                </div>
+                            </div>
+                        </div>
+                        <button id="btn-run-rule-test" class="btn primary" style="width: 100%; border-radius:6px; background-color: var(--accent-success); margin-top: 5px; font-weight:600; padding:10px;">⚡ Run Connectivity Test</button>
+                        
+                        <div id="rt-result-area" style="margin-top: 15px; display: none;">
+                            <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:8px;">
+                                <strong style="font-size:14px;">Live Output:</strong>
+                                <span id="rt-final-result" style="padding: 3px 8px; border-radius: 4px; font-size: 13px; font-family:var(--font-code); font-weight:bold;"></span>
+                            </div>
+                            <pre id="rt-output" class="code-block" style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 6px; overflow-x: auto; max-height: 200px; font-size:12px; white-space:pre-wrap; border: 1px solid var(--panel-border);"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attack Simulation Tab -->
+                <div class="glass-panel" id="attack-simulation-card" style="border: 1px solid var(--accent-danger); box-shadow: 0 0 15px rgba(255,50,50,0.1);">
+                    <div class="panel-header" style="background: rgba(255,0,0,0.05); border-bottom: 1px solid rgba(255,0,0,0.1);">
+                        <h2 style="color: var(--accent-danger); display: flex; align-items: center; gap: 8px;">⚔️ Attack Simulation Lab</h2>
+                        <span class="status-badge" id="sim-status" style="background:var(--panel-bg); color:var(--text); font-size:12px;">Idle</span>
+                    </div>
+                    <div class="sim-content" style="padding: 16px;">
+                        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px;">Simulate realistic attacks originating from the <strong>EXTERNAL</strong> zone to test current active firewall drops, logs, and accept paths.</p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                            <div>
+                                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px; font-weight:600;">Target Subnet/Host</label>
+                                <select id="sim-target" class="b-input" style="width: 100%; border: 1px solid rgba(255,255,255,0.1);">
+                                    <option value="10.0.5.10">INTERNAL (10.0.5.10)</option>
+                                    <option value="192.168.50.10">DMZ Server (192.168.50.10)</option>
+                                    <option value="10.8.0.10">VPN Client (10.8.0.10)</option>
+                                    <option value="172.20.0.1">Firewall Gateway (172.20.0.1)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px; font-weight:600;">Attack Scenario</label>
+                                <select id="sim-scenario" class="b-input" style="width: 100%; border: 1px solid rgba(255,255,255,0.1);">
+                                    <option value="aggr_scan">Aggressive Recon Scanner (Nmap)</option>
+                                    <option value="brute_force">SSH Brute-Force Simulation</option>
+                                    <option value="unauth_access">Unauthorized Web Access (HTTP Bypass)</option>
+                                    <option value="syn_flood">SYN Flood / DoS Exhaustion</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <button id="btn-launch-sim" class="btn warning-btn" style="width: 100%; background: var(--accent-danger); color: #fff; font-weight: bold; border: none; padding: 10px;">LAUNCH ATTACK SIMULATION</button>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <div style="flex: 1; background: rgba(0,255,0,0.1); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent-success); font-size: 12px;">
+                                <span style="display:block; color:var(--text-muted); font-size:10px; text-transform:uppercase;">Allowed Traffic</span>
+                                <strong id="sim-allowed-count" style="color:var(--accent-success); font-size: 16px;">0</strong> packets
+                            </div>
+                            <div style="flex: 1; background: rgba(255,0,0,0.1); padding: 8px; border-radius: 4px; border-left: 3px solid var(--accent-danger); font-size: 12px;">
+                                <span style="display:block; color:var(--text-muted); font-size:10px; text-transform:uppercase;">Blocked Traffic</span>
+                                <strong id="sim-blocked-count" style="color:var(--accent-danger); font-size: 16px;">0</strong> packets
+                            </div>
+                            <div style="flex: 1; background: rgba(255,165,0,0.1); padding: 8px; border-radius: 4px; border-left: 3px solid orange; font-size: 12px;">
+                                <span style="display:block; color:var(--text-muted); font-size:10px; text-transform:uppercase;">Syslog Triggers</span>
+                                <strong id="sim-logged-count" style="color:orange; font-size: 16px;">0</strong> events
+                            </div>
+                        </div>
+
+                        <div style="position: relative;">
+                            <div style="position: absolute; top: -10px; right: 10px; font-size: 10px; color: var(--accent-danger); font-family: var(--font-code); background: #111; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--accent-danger);">LIVE TELEMETRY</div>
+                            <pre id="sim-terminal" class="code-block" style="margin-top: 0; background: #0a0a0a; border: 1px solid var(--panel-border); height: 250px; overflow-y: auto; color: #fff; font-size: 12px;">// Standby for simulation initialization...</pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VPN Client Simulation Lab -->
+                <div class="glass-panel" id="vpn-simulation-card" style="border: 1px solid var(--accent-primary); box-shadow: 0 0 15px rgba(0,180,255,0.1); margin-top: 15px;">
+                    <div class="panel-header" style="background: rgba(0,180,255,0.05); border-bottom: 1px solid rgba(0,180,255,0.1);">
+                        <h2 style="color: var(--accent-primary); display: flex; align-items: center; gap: 8px;">🔐 Secure VPN Client Simulator</h2>
+                        <span class="status-badge" id="vpn-status" style="background:var(--accent-success); color:#fff; font-size:12px;">TUNNEL ACTIVE</span>
+                    </div>
+                    <div class="sim-content" style="padding: 16px;">
+                        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px;">Simulate an external <strong>Remote Worker (10.8.0.10)</strong> tunneled into the network. Dynamically modify VPN route access interactively.</p>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                                <h3 style="font-size: 11px; margin-bottom: 10px; color: var(--text-muted); text-transform: uppercase;">1. Dynamic Access Controls</h3>
+                                <select id="vpn-acl-target" class="b-input" style="width: 100%; margin-bottom: 8px;">
+                                    <option value="10.0.5.0/24">Subnet A (INTERNAL - 10.0.5.0/24)</option>
+                                    <option value="10.0.10.0/24">Subnet B (RESTRICTED - 10.0.10.0/24)</option>
+                                    <option value="192.168.50.0/24">DMZ Subnet (192.168.50.0/24)</option>
+                                    <option value="10.0.5.10">Single Host A (10.0.5.10)</option>
+                                </select>
+                                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                                    <select id="vpn-acl-port" class="b-input" style="flex: 1;">
+                                        <option value="ANY">Any Service</option>
+                                        <option value="80">HTTP (80)</option>
+                                        <option value="22">SSH (22)</option>
+                                        <option value="3389">RDP (3389)</option>
+                                        <option value="5432">DB Postgres (5432)</option>
+                                    </select>
+                                    <select id="vpn-acl-action" class="b-input" style="flex: 1;">
+                                        <option value="ACCEPT">ALLOW</option>
+                                        <option value="DROP">DENY</option>
+                                    </select>
+                                </div>
+                                <button id="btn-push-vpn-rule" class="btn secondary" style="width: 100%; color: var(--accent-primary); border-color: var(--accent-primary);">Push Tunnel Rule → Firewall</button>
+                            </div>
+
+                            <div style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: 6px; border: 1px solid var(--panel-border);">
+                                <h3 style="font-size: 11px; margin-bottom: 10px; color: var(--text-muted); text-transform: uppercase;">2. Connection Test</h3>
+                                <select id="vpn-test-target" class="b-input" style="width: 100%; margin-bottom: 8px;">
+                                    <option value="10.0.5.10">Test Target: Subnet A (10.0.5.10)</option>
+                                    <option value="10.0.10.10">Test Target: Subnet B (10.0.10.10)</option>
+                                    <option value="192.168.50.10">Test Target: DMZ Server (192.168.50.10)</option>
+                                </select>
+                                <select id="vpn-test-type" class="b-input" style="width: 100%; margin-bottom: 10px;">
+                                    <option value="ping">ICMP Ping (Connectivity)</option>
+                                    <option value="nmap">Nmap Port Scan (Service Discovery)</option>
+                                    <option value="curl">HTTP Request (cURL)</option>
+                                </select>
+                                <div style="display: flex; gap: 8px; margin-bottom: 10px; align-items: center;">
+                                    <button id="btn-run-vpn-test" class="btn primary" style="flex: 1; background: var(--accent-primary); color: #fff;">Execute Access Test</button>
+                                    <div id="vpn-test-result" style="padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: bold; background: #222; color: var(--text-muted); text-align: center; border: 1px solid var(--panel-border); min-width: 90px;">WAITING</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="position: relative;">
+                            <div style="position: absolute; top: -10px; right: 10px; font-size: 10px; color: var(--accent-primary); font-family: var(--font-code); background: #111; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--accent-primary);">VPN TERMINAL</div>
+                            <div id="vpn-push-feedback" style="position: absolute; top: -10px; left: 10px; display: none; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 4px; background: rgba(0,255,0,0.2); color: var(--accent-success); border: 1px solid var(--accent-success); opacity: 0; transition: opacity 0.3s ease;">✓ Rule Successfully Applied to Firewall!</div>
+                            <pre id="vpn-terminal" class="code-block" style="margin-top: 0; background: #0a0a0a; border: 1px solid var(--panel-border); height: 200px; overflow-y: auto; color: #fff; font-size: 12px;">// User (10.8.0.10) authenticated successfully. Awaiting actions...</pre>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+        </main>
+        
+        <!-- Toast Notification -->
+        <div id="toast" class="toast">Notification</div>
+
+        <!-- System Logs Modal -->
+        <div id="logs-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+            <div class="glass-panel" style="width: 80%; max-width: 900px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid orange; box-shadow: 0 0 20px rgba(255,165,0,0.2);">
+                <div class="panel-header" style="background: rgba(255,165,0,0.1); border-bottom: 1px solid rgba(255,165,0,0.2); padding: 15px 20px;">
+                    <h2 style="color: orange; display: flex; align-items: center; gap: 10px;">📜 Audit & System Event Logs</h2>
+                    <button id="btn-close-logs" class="btn secondary" style="padding: 5px 12px; font-size: 12px; border-color: gray; color: #fff;">Close Window</button>
+                </div>
+                <div style="padding: 20px; overflow-y: auto; flex: 1; font-family: var(--font-code); font-size: 12px; background: #080808;">
+                    <table style="width: 100%; border-collapse: collapse; color: #bbb;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid #333; text-align: left; color: #fff;">
+                                <th style="padding: 10px; width: 150px;">Timestamp</th>
+                                <th style="padding: 10px; width: 100px;">Module</th>
+                                <th style="padding: 10px; width: 120px;">Action / Status</th>
+                                <th style="padding: 10px;">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body">
+                            <!-- Logs injected here dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

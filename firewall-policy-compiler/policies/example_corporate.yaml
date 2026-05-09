@@ -1,0 +1,368 @@
+# ============================================================
+# Corporate Network Firewall Policy
+# ============================================================
+# Human-readable security intent that compiles into
+# iptables / nftables rules, NAT config, and VPN ACLs.
+# ============================================================
+
+metadata:
+  name: "Corporate Network Policy"
+  version: "1.0"
+  author: "Security Team"
+  description: "Standard corporate firewall policy with DMZ, VPN, and guest isolation"
+  date: "2026-04-21"
+
+# ── Network Zones ──────────────────────────────────────────
+zones:
+  internal:
+    description: "Corporate LAN"
+    subnet: "10.0.1.0/24"
+    interface: "eth0"
+  
+  dmz:
+    description: "Demilitarized Zone for public-facing servers"
+    subnet: "10.0.2.0/24"
+    interface: "eth1"
+  
+  external:
+    description: "Internet / untrusted"
+    subnet: "0.0.0.0/0"
+    interface: "eth2"
+  
+  vpn:
+    description: "VPN tunnel network"
+    subnet: "10.0.3.0/24"
+    interface: "wg0"
+  
+  guest:
+    description: "Guest wireless network"
+    subnet: "10.0.4.0/24"
+    interface: "eth3"
+
+# ── Roles ──────────────────────────────────────────────────
+roles:
+  admin:
+    description: "System administrators"
+    source_zones: ["internal", "vpn"]
+  
+  developer:
+    description: "Development team"
+    source_zones: ["internal"]
+  
+  guest:
+    description: "Guest users on wireless"
+    source_zones: ["guest"]
+  
+  vpn_user:
+    description: "Remote VPN users"
+    source_zones: ["vpn"]
+  
+  server:
+    description: "DMZ servers"
+    source_zones: ["dmz"]
+
+# ── Service Definitions ───────────────────────────────────
+services:
+  http:
+    protocol: "tcp"
+    port: 80
+    description: "HTTP web traffic"
+  
+  https:
+    protocol: "tcp"
+    port: 443
+    description: "HTTPS encrypted web traffic"
+  
+  ssh:
+    protocol: "tcp"
+    port: 22
+    description: "Secure Shell"
+  
+  dns:
+    protocol: "udp"
+    port: 53
+    description: "Domain Name System"
+  
+  ftp:
+    protocol: "tcp"
+    port: 21
+    description: "File Transfer Protocol"
+  
+  smtp:
+    protocol: "tcp"
+    port: 25
+    description: "Mail transfer"
+  
+  mysql:
+    protocol: "tcp"
+    port: 3306
+    description: "MySQL database"
+  
+  custom_api:
+    protocol: "tcp"
+    port: 8443
+    description: "Internal API endpoint"
+
+# ── Firewall Rules ─────────────────────────────────────────
+rules:
+  # --- Guest Access (Restrictive) ---
+  - id: "RULE-001"
+    description: "Guests may access HTTP only"
+    role: "guest"
+    source_zone: "guest"
+    destination_zone: "external"
+    service: "http"
+    action: "allow"
+    log: true
+    priority: 100
+
+  - id: "RULE-002"
+    description: "Guests may access HTTPS"
+    role: "guest"
+    source_zone: "guest"
+    destination_zone: "external"
+    service: "https"
+    action: "allow"
+    log: false
+    priority: 101
+
+  - id: "RULE-003"
+    description: "Guests may use DNS"
+    role: "guest"
+    source_zone: "guest"
+    destination_zone: "external"
+    service: "dns"
+    action: "allow"
+    log: false
+    priority: 102
+
+  - id: "RULE-004"
+    description: "Guests are denied all other access"
+    role: "guest"
+    source_zone: "guest"
+    destination_zone: "any"
+    service: "any"
+    action: "deny"
+    log: true
+    priority: 999
+
+  # --- Admin Access (Full) ---
+  - id: "RULE-010"
+    description: "Admins may SSH to DMZ servers"
+    role: "admin"
+    source_zone: "internal"
+    destination_zone: "dmz"
+    service: "ssh"
+    action: "allow"
+    log: true
+    priority: 50
+
+  - id: "RULE-011"
+    description: "Admins may SSH to DMZ from VPN"
+    role: "admin"
+    source_zone: "vpn"
+    destination_zone: "dmz"
+    service: "ssh"
+    action: "allow"
+    log: true
+    priority: 51
+
+  - id: "RULE-012"
+    description: "Admins have full access to internal network"
+    role: "admin"
+    source_zone: "internal"
+    destination_zone: "internal"
+    service: "any"
+    action: "allow"
+    log: false
+    priority: 52
+
+  # --- VPN Access Control ---
+  - id: "RULE-020"
+    description: "VPN users may reach internal subnet A (10.0.1.0/24)"
+    role: "vpn_user"
+    source_zone: "vpn"
+    destination_zone: "internal"
+    service: "any"
+    action: "allow"
+    log: true
+    priority: 60
+
+  - id: "RULE-021"
+    description: "VPN users may NOT reach DMZ directly"
+    role: "vpn_user"
+    source_zone: "vpn"
+    destination_zone: "dmz"
+    service: "any"
+    action: "deny"
+    log: true
+    priority: 61
+
+  # --- DMZ Rules ---
+  - id: "RULE-030"
+    description: "External users may access DMZ web servers"
+    role: "any"
+    source_zone: "external"
+    destination_zone: "dmz"
+    service: "http"
+    action: "allow"
+    log: false
+    priority: 70
+
+  - id: "RULE-031"
+    description: "External users may access DMZ HTTPS"
+    role: "any"
+    source_zone: "external"
+    destination_zone: "dmz"
+    service: "https"
+    action: "allow"
+    log: false
+    priority: 71
+
+  - id: "RULE-032"
+    description: "DMZ servers may query DNS"
+    role: "server"
+    source_zone: "dmz"
+    destination_zone: "external"
+    service: "dns"
+    action: "allow"
+    log: false
+    priority: 72
+
+  - id: "RULE-033"
+    description: "DMZ servers cannot reach internal network"
+    role: "server"
+    source_zone: "dmz"
+    destination_zone: "internal"
+    service: "any"
+    action: "deny"
+    log: true
+    priority: 73
+
+  # --- Developer Access ---
+  - id: "RULE-040"
+    description: "Developers may access custom API on DMZ"
+    role: "developer"
+    source_zone: "internal"
+    destination_zone: "dmz"
+    service: "custom_api"
+    action: "allow"
+    log: true
+    priority: 80
+
+  - id: "RULE-041"
+    description: "Developers may access MySQL on internal"
+    role: "developer"
+    source_zone: "internal"
+    destination_zone: "internal"
+    service: "mysql"
+    action: "allow"
+    log: false
+    priority: 81
+
+  # --- Rate Limiting ---
+  - id: "RULE-050"
+    description: "Rate limit SSH from external to prevent brute force"
+    role: "any"
+    source_zone: "external"
+    destination_zone: "any"
+    service: "ssh"
+    action: "rate_limit"
+    rate: "3/minute"
+    burst: 5
+    log: true
+    priority: 10
+
+  # --- Default Deny ---
+  - id: "RULE-999"
+    description: "Default deny all unmatched traffic"
+    role: "any"
+    source_zone: "any"
+    destination_zone: "any"
+    service: "any"
+    action: "deny"
+    log: true
+    priority: 9999
+
+# ── NAT Configuration ─────────────────────────────────────
+nat:
+  snat:
+    - id: "NAT-001"
+      description: "Masquerade internal to external"
+      source_zone: "internal"
+      outbound_interface: "eth2"
+      type: "masquerade"
+    
+    - id: "NAT-002"
+      description: "Masquerade guest to external"
+      source_zone: "guest"
+      outbound_interface: "eth2"
+      type: "masquerade"
+
+  dnat:
+    - id: "NAT-010"
+      description: "Publish DMZ web server on port 80"
+      external_port: 80
+      internal_ip: "10.0.2.10"
+      internal_port: 80
+      protocol: "tcp"
+    
+    - id: "NAT-011"
+      description: "Publish DMZ web server on port 443"
+      external_port: 443
+      internal_ip: "10.0.2.10"
+      internal_port: 443
+      protocol: "tcp"
+    
+    - id: "NAT-012"
+      description: "Publish DMZ mail server"
+      external_port: 25
+      internal_ip: "10.0.2.11"
+      internal_port: 25
+      protocol: "tcp"
+
+# ── DMZ Design ─────────────────────────────────────────────
+dmz:
+  servers:
+    - name: "web-server"
+      ip: "10.0.2.10"
+      services: ["http", "https"]
+      description: "Public web server"
+    
+    - name: "mail-server"
+      ip: "10.0.2.11"
+      services: ["smtp"]
+      description: "Mail relay"
+    
+    - name: "api-gateway"
+      ip: "10.0.2.12"
+      services: ["custom_api"]
+      description: "API gateway for developers"
+
+# ── VPN Configuration ──────────────────────────────────────
+vpn:
+  type: "wireguard"
+  interface: "wg0"
+  listen_port: 51820
+  server_ip: "10.0.3.1/24"
+  allowed_subnets:
+    - "10.0.1.0/24"  # Internal — allowed
+  denied_subnets:
+    - "10.0.2.0/24"  # DMZ — denied
+  peers:
+    - name: "admin-laptop"
+      public_key: "ADMIN_PUBLIC_KEY_PLACEHOLDER"
+      allowed_ips: "10.0.3.2/32"
+      role: "admin"
+    
+    - name: "remote-worker"
+      public_key: "WORKER_PUBLIC_KEY_PLACEHOLDER"
+      allowed_ips: "10.0.3.3/32"
+      role: "vpn_user"
+
+# ── Logging Configuration ─────────────────────────────────
+logging:
+  blocked_packets: true
+  log_prefix: "FW-BLOCKED: "
+  rate_limit_log: "5/minute"
+  log_level: "warning"
